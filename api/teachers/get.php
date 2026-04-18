@@ -45,6 +45,7 @@ $statement = $pdo->query(
         tc.class_id,
         tc.start_time,
         tc.end_time,
+        tc.day_of_week,
         c.subject,
         course.id AS course_id,
         course.name AS course_name,
@@ -118,6 +119,7 @@ foreach ($statement->fetchAll() as $row) {
             'id' => (int) ($row['section_id'] ?? 0),
             'name' => (string) ($row['section_name'] ?? ''),
         ],
+        'dayOfWeek' => (string) ($row['day_of_week'] ?? 'Monday'),
         'startTime' => $row['start_time'] !== null ? substr((string) $row['start_time'], 0, 5) : '',
         'endTime' => $row['end_time'] !== null ? substr((string) $row['end_time'], 0, 5) : '',
     ];

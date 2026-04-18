@@ -21,6 +21,17 @@ function normalize_time(string $value): string
     return $trimmed . ':00';
 }
 
+function normalize_day_of_week(string $value): string
+{
+    $trimmed = trim($value);
+
+    if (!in_array($trimmed, ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], true)) {
+        json_response(['message' => 'Assigned class day must be Monday through Saturday.'], 422);
+    }
+
+    return $trimmed;
+}
+
 function generate_teacher_code(PDO $pdo): string
 {
     $statement = $pdo->query("SELECT teacher_id FROM teachers WHERE teacher_id LIKE 'TCH-%' ORDER BY id DESC LIMIT 1");
@@ -82,6 +93,7 @@ function fetch_teacher_record(PDO $pdo, int $teacherId): array
             tc.class_id,
             tc.start_time,
             tc.end_time,
+            tc.day_of_week,
             c.subject,
             course.id AS course_id,
             course.name AS course_name,
@@ -139,6 +151,7 @@ function fetch_teacher_record(PDO $pdo, int $teacherId): array
                 'id' => (int) ($row['section_id'] ?? 0),
                 'name' => (string) ($row['section_name'] ?? ''),
             ],
+            'dayOfWeek' => (string) ($row['day_of_week'] ?? 'Monday'),
             'startTime' => $row['start_time'] !== null ? substr((string) $row['start_time'], 0, 5) : '',
             'endTime' => $row['end_time'] !== null ? substr((string) $row['end_time'], 0, 5) : '',
         ];
@@ -177,6 +190,7 @@ foreach ($assignedClasses as $assignment) {
     $courseId = (int) ($assignment['courseId'] ?? 0);
     $yearLevelId = (int) ($assignment['yearLevelId'] ?? 0);
     $sectionId = (int) ($assignment['sectionId'] ?? 0);
+    $dayOfWeek = normalize_day_of_week((string) ($assignment['dayOfWeek'] ?? ''));
     $startTime = normalize_time((string) ($assignment['startTime'] ?? ''));
     $endTime = normalize_time((string) ($assignment['endTime'] ?? ''));
 
@@ -193,6 +207,7 @@ foreach ($assignedClasses as $assignment) {
         'courseId' => $courseId,
         'yearLevelId' => $yearLevelId,
         'sectionId' => $sectionId,
+        'dayOfWeek' => $dayOfWeek,
         'startTime' => $startTime,
         'endTime' => $endTime,
     ];
@@ -246,8 +261,8 @@ try {
     ]);
 
     $assignTeacher = $pdo->prepare(
-        'INSERT INTO teacher_classes (teacher_id, class_id, start_time, end_time)
-         VALUES (:teacher_id, :class_id, :start_time, :end_time)'
+        'INSERT INTO teacher_classes (teacher_id, class_id, start_time, end_time, day_of_week)
+         VALUES (:teacher_id, :class_id, :start_time, :end_time, :day_of_week)'
     );
 
     foreach ($normalizedAssignments as $assignment) {
@@ -257,6 +272,7 @@ try {
             'class_id' => $classId,
             'start_time' => $assignment['startTime'],
             'end_time' => $assignment['endTime'],
+            'day_of_week' => $assignment['dayOfWeek'],
         ]);
     }
 

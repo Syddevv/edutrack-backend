@@ -1,0 +1,7 @@
+{
+    "schoolName": "Bulacan Polytechnic College",
+    "academicYearStart": 2025,
+    "aiInsightsEnabled": true,
+    "defaultLandingPage": "dashboard",
+    "lateThresholdMinutes": 15
+}

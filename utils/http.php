@@ -13,7 +13,7 @@ function handle_cors(array $allowedOrigins = ['http://localhost:5173']): void
     }
 
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
-    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
     header('Content-Type: application/json; charset=utf-8');
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
