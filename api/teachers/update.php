@@ -21,15 +21,6 @@ function normalize_time(string $value): string
     return $trimmed . ':00';
 }
 
-function generate_teacher_code(PDO $pdo): string
-{
-    $statement = $pdo->query("SELECT teacher_id FROM teachers WHERE teacher_id LIKE 'TCH-%' ORDER BY id DESC LIMIT 1");
-    $lastCode = (string) ($statement->fetchColumn() ?: 'TCH-000');
-    $lastNumber = (int) preg_replace('/[^0-9]/', '', $lastCode);
-
-    return 'TCH-' . str_pad((string) ($lastNumber + 1), 3, '0', STR_PAD_LEFT);
-}
-
 function find_or_create_class(PDO $pdo, array $assignment): int
 {
     $lookup = $pdo->prepare(
@@ -103,7 +94,7 @@ function fetch_teacher_record(PDO $pdo, int $teacherId): array
     $rows = $statement->fetchAll();
 
     if (count($rows) === 0) {
-        json_response(['message' => 'Teacher was created but could not be loaded.'], 500);
+        json_response(['message' => 'Teacher not found.'], 404);
     }
 
     $firstRow = $rows[0];
@@ -148,14 +139,18 @@ function fetch_teacher_record(PDO $pdo, int $teacherId): array
 }
 
 $payload = json_input();
+$teacherId = (int) ($payload['teacherId'] ?? 0);
 $fullName = trim((string) ($payload['fullName'] ?? ''));
 $email = strtolower(trim((string) ($payload['email'] ?? '')));
-$password = (string) ($payload['password'] ?? '');
 $status = (string) ($payload['status'] ?? 'Active');
 $assignedClasses = $payload['assignedClasses'] ?? [];
 
-if ($fullName === '' || $email === '' || $password === '') {
-    json_response(['message' => 'Full name, email, and password are required.'], 422);
+if ($teacherId <= 0) {
+    json_response(['message' => 'Teacher ID is required.'], 422);
+}
+
+if ($fullName === '' || $email === '') {
+    json_response(['message' => 'Full name and email are required.'], 422);
 }
 
 if (!in_array($status, ['Active', 'On Leave', 'Inactive'], true)) {
@@ -199,60 +194,75 @@ foreach ($assignedClasses as $assignment) {
 }
 
 $pdo = database();
+$currentTeacherStatement = $pdo->prepare('SELECT id, email FROM teachers WHERE id = :id LIMIT 1');
+$currentTeacherStatement->execute(['id' => $teacherId]);
+$currentTeacher = $currentTeacherStatement->fetch();
 
-$existingTeacher = $pdo->prepare('SELECT id FROM teachers WHERE email = :email LIMIT 1');
-$existingTeacher->execute(['email' => $email]);
+if (!$currentTeacher) {
+    json_response(['message' => 'Teacher not found.'], 404);
+}
+
+$existingTeacher = $pdo->prepare('SELECT id FROM teachers WHERE email = :email AND id <> :id LIMIT 1');
+$existingTeacher->execute([
+    'email' => $email,
+    'id' => $teacherId,
+]);
 if ($existingTeacher->fetch()) {
     json_response(['message' => 'A teacher with that email already exists.'], 409);
 }
 
-$existingUser = $pdo->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
-$existingUser->execute(['email' => $email]);
+$existingUser = $pdo->prepare("SELECT id FROM users WHERE email = :email AND role = 'teacher' AND email <> :current_email LIMIT 1");
+$existingUser->execute([
+    'email' => $email,
+    'current_email' => $currentTeacher['email'],
+]);
 if ($existingUser->fetch()) {
     json_response(['message' => 'A user with that email already exists.'], 409);
 }
 
-$passwordHash = password_hash($password, PASSWORD_DEFAULT);
-$teacherId = 0;
-
 try {
     $pdo->beginTransaction();
 
-    $teacherCode = generate_teacher_code($pdo);
-
-    $insertTeacher = $pdo->prepare(
-        'INSERT INTO teachers (teacher_id, full_name, email, password, status)
-         VALUES (:teacher_id, :full_name, :email, :password, :status)'
+    $updateTeacher = $pdo->prepare(
+        'UPDATE teachers
+         SET full_name = :full_name,
+             email = :email,
+             status = :status
+         WHERE id = :id'
     );
-    $insertTeacher->execute([
-        'teacher_id' => $teacherCode,
+    $updateTeacher->execute([
         'full_name' => $fullName,
         'email' => $email,
-        'password' => $passwordHash,
         'status' => $status,
+        'id' => $teacherId,
     ]);
 
-    $teacherId = (int) $pdo->lastInsertId();
-
-    $insertUser = $pdo->prepare(
-        "INSERT INTO users (name, email, password, role, status)
-         VALUES (:name, :email, :password, 'teacher', :status)"
+    $updateUser = $pdo->prepare(
+        "UPDATE users
+         SET name = :name,
+             email = :new_email,
+             status = :status
+         WHERE email = :old_email
+           AND role = 'teacher'"
     );
-    $insertUser->execute([
+    $updateUser->execute([
         'name' => $fullName,
-        'email' => $email,
-        'password' => $passwordHash,
+        'new_email' => $email,
         'status' => $status === 'Inactive' ? 'inactive' : 'active',
+        'old_email' => $currentTeacher['email'],
     ]);
 
-    $assignTeacher = $pdo->prepare(
+    $deleteAssignments = $pdo->prepare('DELETE FROM teacher_classes WHERE teacher_id = :teacher_id');
+    $deleteAssignments->execute(['teacher_id' => $teacherId]);
+
+    $insertAssignment = $pdo->prepare(
         'INSERT INTO teacher_classes (teacher_id, class_id, start_time, end_time)
          VALUES (:teacher_id, :class_id, :start_time, :end_time)'
     );
 
     foreach ($normalizedAssignments as $assignment) {
         $classId = find_or_create_class($pdo, $assignment);
-        $assignTeacher->execute([
+        $insertAssignment->execute([
             'teacher_id' => $teacherId,
             'class_id' => $classId,
             'start_time' => $assignment['startTime'],
@@ -266,10 +276,10 @@ try {
         $pdo->rollBack();
     }
 
-    json_response(['message' => 'Failed to create teacher.'], 500);
+    json_response(['message' => 'Failed to update teacher.'], 500);
 }
 
 json_response([
-    'message' => 'Teacher created successfully.',
+    'message' => 'Teacher updated successfully.',
     'teacher' => fetch_teacher_record($pdo, $teacherId),
-], 201);
+]);
