@@ -5,14 +5,20 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/http.php';
 
-function start_auth_session(): void
+const AUTH_SESSION_LIFETIME = 60 * 60 * 24 * 30;
+
+function start_auth_session(bool $rememberMe = false): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) {
         return;
     }
 
+    $lifetime = $rememberMe ? AUTH_SESSION_LIFETIME : 0;
+
     session_name('edutrack_session');
+    ini_set('session.gc_maxlifetime', (string) AUTH_SESSION_LIFETIME);
     session_set_cookie_params([
+        'lifetime' => $lifetime,
         'httponly' => true,
         'samesite' => 'Lax',
         'path' => '/',

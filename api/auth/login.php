@@ -7,15 +7,17 @@ require_once __DIR__ . '/../../utils/auth.php';
 
 handle_cors();
 require_method('POST');
-start_auth_session();
 
 $payload = json_input();
 $email = strtolower(trim((string) ($payload['email'] ?? '')));
 $password = (string) ($payload['password'] ?? '');
+$rememberMe = (bool) ($payload['rememberMe'] ?? false);
 
 if ($email === '' || $password === '') {
     json_response(['message' => 'Email and password are required.'], 422);
 }
+
+start_auth_session($rememberMe);
 
 $user = attempt_login($email, $password);
 
