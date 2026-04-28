@@ -12,7 +12,7 @@ function database(): PDO
 
     $host = 'sql201.infinityfree.com';
     $port = '3306';
-    $name = 'if0_41774022_edutrack_db'; // ← replace XXX with your actual DB name
+    $name = 'if0_41774022_edutrack_db';
     $user = 'if0_41774022';
     $pass = 'Uen1ifXr4EUFV';
 

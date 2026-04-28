@@ -25,15 +25,12 @@ function start_auth_session(bool $rememberMe = false): void
 
 function auth_session_cookie_params(int $lifetime = 0): array
 {
-    $isSecure = is_https_request();
-
     return [
         'lifetime' => $lifetime,
         'path' => '/',
-        'secure' => $isSecure,
+        'secure' => true,        // ALWAYS true (Render is HTTPS)
         'httponly' => true,
-        // Cross-site frontend requests need SameSite=None, which also requires Secure.
-        'samesite' => $isSecure ? 'None' : 'Lax',
+        'samesite' => 'None',    // REQUIRED for Vercel → Render
     ];
 }
 
