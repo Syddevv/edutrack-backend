@@ -2,16 +2,9 @@
 
 declare(strict_types=1);
 
-function handle_cors(array $allowedOrigins = ['http://localhost:5173']): void
+function handle_cors(): void
 {
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-
-    if (in_array($origin, $allowedOrigins, true)) {
-        header("Access-Control-Allow-Origin: {$origin}");
-        header('Vary: Origin');
-        header('Access-Control-Allow-Credentials: true');
-    }
-
+    header("Access-Control-Allow-Origin: *");
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
     header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
     header('Content-Type: application/json; charset=utf-8');
