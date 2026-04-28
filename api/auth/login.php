@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../utils/http.php';
 require_once __DIR__ . '/../../utils/auth.php';
+require_once __DIR__ . '/../../utils/two_factor.php';
 
 handle_cors();
 require_method('POST');
@@ -26,7 +27,22 @@ if ($user === null) {
 }
 
 session_regenerate_id(true);
-$_SESSION['user'] = $user;
+
+if (
+    strtolower((string) ($user['role'] ?? '')) === 'admin'
+    && two_factor_is_enabled(database(), (int) $user['id'])
+) {
+    store_pending_two_factor_user($user);
+
+    json_response([
+        'message' => 'Two-factor verification required.',
+        'requiresTwoFactor' => true,
+        'email' => (string) $user['email'],
+        'role' => (string) $user['role'],
+    ]);
+}
+
+complete_login($user);
 
 json_response([
     'message' => 'Login successful.',

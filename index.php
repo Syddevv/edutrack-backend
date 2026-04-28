@@ -13,5 +13,6 @@ json_response([
         'POST /api/auth/login.php',
         'POST /api/auth/logout.php',
         'GET /api/auth/me.php',
+        'GET|POST /api/auth/two-factor.php',
     ],
 ]);

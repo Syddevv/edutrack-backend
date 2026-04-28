@@ -6,6 +6,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/http.php';
 
 const AUTH_SESSION_LIFETIME = 60 * 60 * 24 * 30;
+const AUTH_PENDING_TWO_FACTOR_USER_KEY = 'pending_two_factor_user';
 
 function start_auth_session(bool $rememberMe = false): void
 {
@@ -61,6 +62,37 @@ function current_user(): ?array
     }
 
     return $_SESSION['user'];
+}
+
+function pending_two_factor_user(): ?array
+{
+    start_auth_session();
+
+    if (empty($_SESSION[AUTH_PENDING_TWO_FACTOR_USER_KEY])) {
+        return null;
+    }
+
+    return $_SESSION[AUTH_PENDING_TWO_FACTOR_USER_KEY];
+}
+
+function store_pending_two_factor_user(array $user): void
+{
+    start_auth_session();
+    $_SESSION[AUTH_PENDING_TWO_FACTOR_USER_KEY] = $user;
+    unset($_SESSION['user']);
+}
+
+function clear_pending_two_factor_user(): void
+{
+    start_auth_session();
+    unset($_SESSION[AUTH_PENDING_TWO_FACTOR_USER_KEY]);
+}
+
+function complete_login(array $user): void
+{
+    start_auth_session();
+    clear_pending_two_factor_user();
+    $_SESSION['user'] = $user;
 }
 
 function require_auth(): array
