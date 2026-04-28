@@ -71,6 +71,153 @@ function schedule_occurrence_start(array $scheduleRow, DateTimeImmutable $now, D
     );
 }
 
+function build_ai_insight(PDO $pdo, ?array $selectedClass, ?array $classMeta, array $summary, ?string $attendanceDate): ?array
+{
+    if ($selectedClass === null || $classMeta === null) {
+        return [
+            'title' => 'Attendance Snapshot',
+            'body' => 'No class data is ready yet. Once attendance is recorded for one of your classes, this card will highlight trends to review.',
+        ];
+    }
+
+    $courseId = (int) ($classMeta['course_id'] ?? 0);
+    $yearLevelId = (int) ($classMeta['year_level_id'] ?? 0);
+    $sectionId = (int) ($classMeta['section_id'] ?? 0);
+    $classId = (int) ($selectedClass['classId'] ?? 0);
+
+    if ($courseId <= 0 || $yearLevelId <= 0 || $sectionId <= 0 || $classId <= 0) {
+        return [
+            'title' => 'Attendance Snapshot',
+            'body' => 'Class details are incomplete, so there is not enough data to generate an attendance insight yet.',
+        ];
+    }
+
+    $referenceDate = $attendanceDate ?? date('Y-m-d');
+    $windowStart = date('Y-m-d', strtotime($referenceDate . ' -6 days'));
+
+    $patternStatement = $pdo->prepare(
+        "SELECT
+            s.id AS student_id,
+            s.first_name,
+            s.last_name,
+            SUM(CASE WHEN a.status = 'Late' THEN 1 ELSE 0 END) AS late_count,
+            SUM(CASE WHEN a.status = 'Absent' THEN 1 ELSE 0 END) AS absent_count,
+            SUM(CASE WHEN a.status IN ('Present', 'Late') THEN 1 ELSE 0 END) AS attended_count,
+            COUNT(a.id) AS total_count
+         FROM students s
+         LEFT JOIN attendance a
+           ON a.student_id = s.id
+          AND a.class_id = :class_id
+          AND a.date BETWEEN :window_start AND :window_end
+         WHERE s.course_id = :course_id
+           AND s.year_level_id = :year_level_id
+           AND s.section_id = :section_id
+         GROUP BY s.id, s.first_name, s.last_name
+         ORDER BY s.last_name ASC, s.first_name ASC"
+    );
+    $patternStatement->execute([
+        'class_id' => $classId,
+        'window_start' => $windowStart,
+        'window_end' => $referenceDate,
+        'course_id' => $courseId,
+        'year_level_id' => $yearLevelId,
+        'section_id' => $sectionId,
+    ]);
+    $studentPatterns = $patternStatement->fetchAll();
+
+    $lateLeader = null;
+    $absenceLeader = null;
+    $lowestRateStudent = null;
+
+    foreach ($studentPatterns as $row) {
+        $fullName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        $lateCount = (int) ($row['late_count'] ?? 0);
+        $absentCount = (int) ($row['absent_count'] ?? 0);
+        $attendedCount = (int) ($row['attended_count'] ?? 0);
+        $totalCount = (int) ($row['total_count'] ?? 0);
+        $attendanceRate = percentage($attendedCount, $totalCount);
+
+        $candidate = [
+            'fullName' => $fullName !== '' ? $fullName : 'This student',
+            'lateCount' => $lateCount,
+            'absentCount' => $absentCount,
+            'attendanceRate' => $attendanceRate,
+            'totalCount' => $totalCount,
+        ];
+
+        if ($lateCount > 0 && ($lateLeader === null || $lateCount > $lateLeader['lateCount'])) {
+            $lateLeader = $candidate;
+        }
+
+        if ($absentCount > 0 && ($absenceLeader === null || $absentCount > $absenceLeader['absentCount'])) {
+            $absenceLeader = $candidate;
+        }
+
+        if (
+            $totalCount >= 2 &&
+            ($lowestRateStudent === null || $attendanceRate < $lowestRateStudent['attendanceRate'])
+        ) {
+            $lowestRateStudent = $candidate;
+        }
+    }
+
+    if ($lateLeader !== null && $lateLeader['lateCount'] >= 3) {
+        return [
+            'title' => 'Attendance Alert',
+            'body' => sprintf(
+                '%s has been late %d times in the last 7 days. A quick check-in may help before this pattern affects class participation.',
+                $lateLeader['fullName'],
+                $lateLeader['lateCount']
+            ),
+        ];
+    }
+
+    if ($absenceLeader !== null && $absenceLeader['absentCount'] >= 2) {
+        return [
+            'title' => 'Absence Trend',
+            'body' => sprintf(
+                '%s has %d absences in the last 7 days for %s. It would be worth following up on what is blocking attendance.',
+                $absenceLeader['fullName'],
+                $absenceLeader['absentCount'],
+                class_label($selectedClass)
+            ),
+        ];
+    }
+
+    if ($lowestRateStudent !== null && $lowestRateStudent['attendanceRate'] < 80) {
+        return [
+            'title' => 'Support Needed',
+            'body' => sprintf(
+                '%s is currently at %.1f%% attendance across recent %s records. This student may need closer follow-up.',
+                $lowestRateStudent['fullName'],
+                $lowestRateStudent['attendanceRate'],
+                class_label($selectedClass)
+            ),
+        ];
+    }
+
+    if (($summary['absentCount'] ?? 0) > 0) {
+        return [
+            'title' => 'Daily Attendance',
+            'body' => sprintf(
+                '%d student%s marked absent in %s. Reviewing today\'s follow-up list would be the next useful step.',
+                (int) ($summary['absentCount'] ?? 0),
+                (int) ($summary['absentCount'] ?? 0) === 1 ? ' was' : 's were',
+                class_label($selectedClass)
+            ),
+        ];
+    }
+
+    return [
+        'title' => 'Positive Trend',
+        'body' => sprintf(
+            '%s is at %.1f%% attendance with no urgent lateness or absence pattern in the latest records.',
+            class_label($selectedClass),
+            (float) ($summary['attendanceRate'] ?? 0)
+        ),
+    ];
+}
+
 $pdo = database();
 $teacherStatement = $pdo->prepare(
     'SELECT id, full_name, email
@@ -172,6 +319,7 @@ foreach ($scheduleRows as $scheduleRow) {
 $selectedClass = $todayClass;
 $attendanceDate = null;
 $previousAttendanceDate = null;
+$classMeta = null;
 $summary = [
     'totalStudents' => 0,
     'presentCount' => 0,
@@ -240,7 +388,7 @@ if ($selectedClass !== null) {
         ]);
         $attendanceSummary = $summaryStatement->fetch() ?: [];
 
-        $summary['presentCount'] = (int) ($attendanceSummary['present_count'] ?? 0);
+        $summary['presentCount'] = (int) ($attendanceSummary['attended_count'] ?? 0);
         $summary['absentCount'] = (int) ($attendanceSummary['absent_count'] ?? 0);
         $summary['attendanceRate'] = percentage(
             (int) ($attendanceSummary['attended_count'] ?? 0),
@@ -295,6 +443,8 @@ if ($selectedClass !== null) {
     }
 }
 
+$aiInsight = build_ai_insight($pdo, $selectedClass, $classMeta, $summary, $attendanceDate);
+
 $todayClassPayload = null;
 
 if ($todayClass !== null) {
@@ -335,6 +485,7 @@ json_response([
     'teacherName' => (string) ($teacher['full_name'] ?? ($user['name'] ?? '')),
     'dateLabel' => $now->format('F j, Y'),
     'attendanceDateLabel' => $attendanceDate !== null ? date('F j, Y', strtotime((string) $attendanceDate)) : null,
+    'aiInsight' => $aiInsight,
     'todayClass' => $todayClassPayload,
     'nextClass' => $nextClassPayload,
     'summary' => $summary,
