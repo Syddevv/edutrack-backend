@@ -22,6 +22,8 @@ start_auth_session($rememberMe);
 $user = attempt_login($email, $password);
 
 if ($user === null) {
+    unset($_SESSION['user']);
+    session_regenerate_id(true);
     json_response(['message' => 'Invalid email or password.'], 401);
 }
 
