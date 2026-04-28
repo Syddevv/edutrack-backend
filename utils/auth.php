@@ -14,17 +14,42 @@ function start_auth_session(bool $rememberMe = false): void
     }
 
     $lifetime = $rememberMe ? AUTH_SESSION_LIFETIME : 0;
+    $cookieParams = auth_session_cookie_params($lifetime);
 
     session_name('edutrack_session');
     ini_set('session.gc_maxlifetime', (string) AUTH_SESSION_LIFETIME);
-    session_set_cookie_params([
-        'lifetime' => $lifetime,
-        'httponly' => true,
-        'samesite' => 'Lax',
-        'path' => '/',
-    ]);
+    session_set_cookie_params($cookieParams);
 
     session_start();
+}
+
+function auth_session_cookie_params(int $lifetime = 0): array
+{
+    $isSecure = is_https_request();
+
+    return [
+        'lifetime' => $lifetime,
+        'path' => '/',
+        'secure' => $isSecure,
+        'httponly' => true,
+        // Cross-site frontend requests need SameSite=None, which also requires Secure.
+        'samesite' => $isSecure ? 'None' : 'Lax',
+    ];
+}
+
+function is_https_request(): bool
+{
+    if (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off') {
+        return true;
+    }
+
+    if (($_SERVER['SERVER_PORT'] ?? null) === '443') {
+        return true;
+    }
+
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+    return $forwardedProto === 'https';
 }
 
 function current_user(): ?array

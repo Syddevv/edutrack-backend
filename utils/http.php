@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 function handle_cors(): void
 {
-    header("Access-Control-Allow-Origin: *");
-    header('Access-Control-Allow-Headers: Content-Type, Authorization');
-    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-    header('Content-Type: application/json; charset=utf-8');
+    // 👇 IMPORTANT: no trailing slash
+    $origin = "https://edutrack-frontend-ii9rxt7i2-sydneysantos176-3048s-projects.vercel.app";
 
+    header("Access-Control-Allow-Origin: {$origin}");
+    header("Access-Control-Allow-Credentials: true");
+    header("Access-Control-Allow-Headers: Content-Type, Authorization");
+    header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+    header("Content-Type: application/json; charset=utf-8");
+
+    // Handle preflight request
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
         http_response_code(204);
         exit;
