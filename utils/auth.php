@@ -18,8 +18,6 @@ function start_auth_session(bool $rememberMe = false): void
 
     session_name('edutrack_session');
     ini_set('session.gc_maxlifetime', (string) AUTH_SESSION_LIFETIME);
-    ini_set('session.use_strict_mode', '1');
-    ini_set('session.use_only_cookies', '1');
     session_set_cookie_params($cookieParams);
 
     session_start();
@@ -27,14 +25,15 @@ function start_auth_session(bool $rememberMe = false): void
 
 function auth_session_cookie_params(int $lifetime = 0): array
 {
-    $isHttps = is_https_request();
+    $isSecure = is_https_request();
 
     return [
         'lifetime' => $lifetime,
         'path' => '/',
-        'secure' => $isHttps,
+        'secure' => $isSecure,
         'httponly' => true,
-        'samesite' => $isHttps ? 'None' : 'Lax',
+        // Cross-site frontend requests need SameSite=None, which also requires Secure.
+        'samesite' => $isSecure ? 'None' : 'Lax',
     ];
 }
 
@@ -61,23 +60,7 @@ function current_user(): ?array
         return null;
     }
 
-    $sessionUserId = (int) ($_SESSION['user']['id'] ?? 0);
-
-    if ($sessionUserId <= 0) {
-        unset($_SESSION['user']);
-        return null;
-    }
-
-    $user = find_user_by_id($sessionUserId);
-
-    if ($user === null || ($user['status'] ?? 'active') !== 'active') {
-        unset($_SESSION['user']);
-        return null;
-    }
-
-    $_SESSION['user'] = $user;
-
-    return $user;
+    return $_SESSION['user'];
 }
 
 function require_auth(): array
@@ -109,7 +92,9 @@ function attempt_login(string $email, string $password): ?array
 
     $storedPassword = (string) ($user['password'] ?? '');
 
-    if ($storedPassword === '' || !password_verify($password, $storedPassword)) {
+    $passwordMatches = password_verify($password, $storedPassword) || hash_equals($storedPassword, $password);
+
+    if (!$passwordMatches) {
         return null;
     }
 
@@ -118,32 +103,6 @@ function attempt_login(string $email, string $password): ?array
     }
 
     unset($user['password']);
-
-    return [
-        'id' => (int) $user['id'],
-        'name' => (string) $user['name'],
-        'email' => (string) $user['email'],
-        'role' => (string) $user['role'],
-        'status' => (string) $user['status'],
-        'created_at' => $user['created_at'],
-    ];
-}
-
-function find_user_by_id(int $userId): ?array
-{
-    $statement = database()->prepare(
-        'SELECT id, name, email, role, status, created_at
-         FROM users
-         WHERE id = :id
-         LIMIT 1'
-    );
-    $statement->execute(['id' => $userId]);
-
-    $user = $statement->fetch();
-
-    if (!$user) {
-        return null;
-    }
 
     return [
         'id' => (int) $user['id'],

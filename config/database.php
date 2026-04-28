@@ -10,18 +10,13 @@ function database(): PDO
         return $pdo;
     }
 
-    $host = 'sql201.infinityfree.com';
-    $port = '3306';
-    $name = 'if0_41774022_edutrack_db';
-    $user = 'if0_41774022';
-    $pass = 'Uen1ifXr4EUFV';
+    $host = getenv('DB_HOST') ?: '127.0.0.1';
+    $port = getenv('DB_PORT') ?: '3306';
+    $name = getenv('DB_NAME') ?: 'edutrack';
+    $user = getenv('DB_USER') ?: 'root';
+    $pass = getenv('DB_PASS') ?: '';
 
-    $dsn = sprintf(
-        'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-        $host,
-        $port,
-        $name
-    );
+    $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $name);
 
     $pdo = new PDO(
         $dsn,

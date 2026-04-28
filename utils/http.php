@@ -2,13 +2,14 @@
 
 declare(strict_types=1);
 
-function handle_cors(): void
+function handle_cors(array $allowedOrigins = ['http://localhost:5173']): void
 {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
-    if (strpos($origin, 'vercel.app') !== false || $origin === 'http://localhost:5173') {
-        header("Access-Control-Allow-Origin: $origin");
-        header("Access-Control-Allow-Credentials: true");
+    if (in_array($origin, $allowedOrigins, true)) {
+        header("Access-Control-Allow-Origin: {$origin}");
+        header('Vary: Origin');
+        header('Access-Control-Allow-Credentials: true');
     }
 
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
