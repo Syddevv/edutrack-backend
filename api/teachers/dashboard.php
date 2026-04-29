@@ -71,6 +71,34 @@ function schedule_occurrence_start(array $scheduleRow, DateTimeImmutable $now, D
     );
 }
 
+function schedule_most_recent_occurrence_start(array $scheduleRow, DateTimeImmutable $now, DateTimeZone $timezone): ?DateTimeImmutable
+{
+    $dayIndex = schedule_day_index($scheduleRow['dayOfWeek'] ?? null);
+
+    if ($dayIndex === null) {
+        return null;
+    }
+
+    $currentDayIndex = schedule_day_index($now->format('l'));
+
+    if ($currentDayIndex === null) {
+        return null;
+    }
+
+    $daysSinceClass = $currentDayIndex - $dayIndex;
+
+    if ($daysSinceClass < 0 || ($daysSinceClass === 0 && $scheduleRow['startTimeRaw'] > $now->format('H:i:s'))) {
+        $daysSinceClass += count(SCHEDULE_DAYS);
+    }
+
+    $classDate = $now->setTime(0, 0)->modify(sprintf('-%d days', $daysSinceClass));
+
+    return new DateTimeImmutable(
+        $classDate->format('Y-m-d') . ' ' . $scheduleRow['startTimeRaw'],
+        $timezone
+    );
+}
+
 function build_ai_insight(PDO $pdo, ?array $selectedClass, ?array $classMeta, array $summary, ?string $attendanceDate): ?array
 {
     if ($selectedClass === null || $classMeta === null) {
@@ -289,6 +317,8 @@ $todaySchedule = array_values(array_filter(
 ));
 $todayClass = null;
 $nextClass = null;
+$mostRecentClass = null;
+$mostRecentClassStart = null;
 
 foreach ($todaySchedule as $scheduleRow) {
     if ($todayClass === null && $scheduleRow['startTimeRaw'] <= $currentTime && $scheduleRow['endTimeRaw'] >= $currentTime) {
@@ -316,6 +346,19 @@ foreach ($scheduleRows as $scheduleRow) {
     }
 }
 
+foreach ($scheduleRows as $scheduleRow) {
+    $candidateStart = schedule_most_recent_occurrence_start($scheduleRow, $now, $timezone);
+
+    if ($candidateStart === null) {
+        continue;
+    }
+
+    if ($mostRecentClassStart === null || $candidateStart > $mostRecentClassStart) {
+        $mostRecentClass = $scheduleRow;
+        $mostRecentClassStart = $candidateStart;
+    }
+}
+
 $scheduleRowsByClassId = [];
 $assignedClassIds = [];
 
@@ -330,7 +373,7 @@ foreach ($scheduleRows as $scheduleRow) {
     $assignedClassIds[$classId] = $classId;
 }
 
-$selectedClass = $todayClass;
+$selectedClass = $todayClass ?? $mostRecentClass;
 $attendanceDate = null;
 $previousAttendanceDate = null;
 $classMeta = null;
@@ -508,21 +551,24 @@ if ($recentActivity === [] && count($assignedClassIds) > 0) {
 $aiInsight = build_ai_insight($pdo, $selectedClass, $classMeta, $summary, $attendanceDate);
 
 $todayClassPayload = null;
+$displayClass = $todayClass ?? $mostRecentClass;
 
-if ($todayClass !== null) {
+if ($displayClass !== null) {
     $todayClassPayload = [
-        'scheduleId' => $todayClass['scheduleId'],
-        'classId' => $todayClass['classId'],
-        'subject' => $todayClass['subject'],
-        'course' => $todayClass['course'],
-        'yearLevel' => $todayClass['yearLevel'],
-        'section' => $todayClass['section'],
-        'dayOfWeek' => $todayClass['dayOfWeek'],
-        'startTime' => format_time($todayClass['startTimeRaw']),
-        'endTime' => format_time($todayClass['endTimeRaw']),
-        'status' => $todayClass['startTimeRaw'] <= $currentTime && $todayClass['endTimeRaw'] >= $currentTime
+        'scheduleId' => $displayClass['scheduleId'],
+        'classId' => $displayClass['classId'],
+        'subject' => $displayClass['subject'],
+        'course' => $displayClass['course'],
+        'yearLevel' => $displayClass['yearLevel'],
+        'section' => $displayClass['section'],
+        'dayOfWeek' => $displayClass['dayOfWeek'],
+        'startTime' => format_time($displayClass['startTimeRaw']),
+        'endTime' => format_time($displayClass['endTimeRaw']),
+        'status' => $displayClass['dayOfWeek'] === $currentDay
+            && $displayClass['startTimeRaw'] <= $currentTime
+            && $displayClass['endTimeRaw'] >= $currentTime
             ? 'active'
-            : ($todayClass['startTimeRaw'] > $currentTime ? 'upcoming' : 'completed'),
+            : ($displayClass === $todayClass && $displayClass['startTimeRaw'] > $currentTime ? 'upcoming' : 'completed'),
     ];
 }
 
