@@ -316,6 +316,20 @@ foreach ($scheduleRows as $scheduleRow) {
     }
 }
 
+$scheduleRowsByClassId = [];
+$assignedClassIds = [];
+
+foreach ($scheduleRows as $scheduleRow) {
+    $classId = (int) ($scheduleRow['classId'] ?? 0);
+
+    if ($classId <= 0) {
+        continue;
+    }
+
+    $scheduleRowsByClassId[$classId] = $scheduleRow;
+    $assignedClassIds[$classId] = $classId;
+}
+
 $selectedClass = $todayClass;
 $attendanceDate = null;
 $previousAttendanceDate = null;
@@ -441,6 +455,54 @@ if ($selectedClass !== null) {
             $recentActivityStatement->fetchAll()
         );
     }
+}
+
+if ($recentActivity === [] && count($assignedClassIds) > 0) {
+    $placeholders = implode(', ', array_fill(0, count($assignedClassIds), '?'));
+    $fallbackRecentActivityStatement = $pdo->prepare(
+        "SELECT
+            s.id AS student_id,
+            s.student_id AS student_code,
+            s.first_name,
+            s.last_name,
+            a.status,
+            a.class_id,
+            a.date
+         FROM attendance a
+         INNER JOIN students s ON s.id = a.student_id
+         INNER JOIN (
+            SELECT class_id, MAX(date) AS latest_date
+            FROM attendance
+            WHERE class_id IN ($placeholders)
+            GROUP BY class_id
+         ) latest
+           ON latest.class_id = a.class_id
+          AND latest.latest_date = a.date
+         WHERE a.class_id IN ($placeholders)
+         ORDER BY a.date DESC, a.class_id ASC, s.last_name ASC, s.first_name ASC
+         LIMIT 8"
+    );
+    $fallbackParams = array_values($assignedClassIds);
+    $fallbackRecentActivityStatement->execute([
+        ...$fallbackParams,
+        ...$fallbackParams,
+    ]);
+
+    $recentActivity = array_map(
+        static function (array $row) use ($scheduleRowsByClassId): array {
+            $classId = (int) ($row['class_id'] ?? 0);
+            $classRow = $scheduleRowsByClassId[$classId] ?? ['subject' => 'Unknown Class'];
+
+            return [
+                'studentId' => (int) ($row['student_id'] ?? 0),
+                'studentCode' => (string) ($row['student_code'] ?? ''),
+                'fullName' => trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? '')),
+                'status' => (string) ($row['status'] ?? 'No Record'),
+                'className' => class_label($classRow),
+            ];
+        },
+        $fallbackRecentActivityStatement->fetchAll()
+    );
 }
 
 $aiInsight = build_ai_insight($pdo, $selectedClass, $classMeta, $summary, $attendanceDate);

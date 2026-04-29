@@ -155,6 +155,7 @@ $payload = json_input();
 $teacherId = (int) ($payload['teacherId'] ?? 0);
 $fullName = trim((string) ($payload['fullName'] ?? ''));
 $email = strtolower(trim((string) ($payload['email'] ?? '')));
+$password = trim((string) ($payload['password'] ?? ''));
 $status = (string) ($payload['status'] ?? 'Active');
 $assignedClasses = $payload['assignedClasses'] ?? [];
 
@@ -168,6 +169,10 @@ if ($fullName === '' || $email === '') {
 
 if (!in_array($status, ['Active', 'On Leave', 'Inactive'], true)) {
     json_response(['message' => 'Invalid teacher status.'], 422);
+}
+
+if ($password !== '' && strlen($password) < 8) {
+    json_response(['message' => 'New password must be at least 8 characters long.'], 422);
 }
 
 if (!is_array($assignedClasses) || count($assignedClasses) === 0) {
@@ -266,6 +271,31 @@ try {
         'status' => $status === 'Inactive' ? 'inactive' : 'active',
         'old_email' => $currentTeacher['email'],
     ]);
+
+    if ($password !== '') {
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+
+        $updateTeacherPassword = $pdo->prepare(
+            'UPDATE teachers
+             SET password = :password
+             WHERE id = :id'
+        );
+        $updateTeacherPassword->execute([
+            'password' => $passwordHash,
+            'id' => $teacherId,
+        ]);
+
+        $updateUserPassword = $pdo->prepare(
+            "UPDATE users
+             SET password = :password
+             WHERE email = :email
+               AND role = 'teacher'"
+        );
+        $updateUserPassword->execute([
+            'password' => $passwordHash,
+            'email' => $email,
+        ]);
+    }
 
     $deleteAssignments = $pdo->prepare('DELETE FROM teacher_classes WHERE teacher_id = :teacher_id');
     $deleteAssignments->execute(['teacher_id' => $teacherId]);
