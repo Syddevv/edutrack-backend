@@ -28,20 +28,7 @@ if ($user === null) {
 
 session_regenerate_id(true);
 
-if (
-    strtolower((string) ($user['role'] ?? '')) === 'admin'
-    && two_factor_is_enabled(database(), (int) $user['id'])
-) {
-    store_pending_two_factor_user($user);
-
-    json_response([
-        'message' => 'Two-factor verification required.',
-        'requiresTwoFactor' => true,
-        'email' => (string) $user['email'],
-        'role' => (string) $user['role'],
-    ]);
-}
-
+// Two-factor login is temporarily disabled so accounts can sign in with email and password only.
 complete_login($user);
 
 json_response([

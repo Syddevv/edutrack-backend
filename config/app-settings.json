@@ -1,7 +1,8 @@
 {
-    "schoolName": "Bulacan Polytechnic College",
+    "schoolName": "Bulacan Polytechnic University",
     "academicYearStart": 2025,
     "aiInsightsEnabled": true,
     "defaultLandingPage": "dashboard",
-    "lateThresholdMinutes": 15
+    "lateThresholdMinutes": 15,
+    "schoolLogoPath": "/uploads/logos/school-logo-da97ff5e813b87d8.png"
 }

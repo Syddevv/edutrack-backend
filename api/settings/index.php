@@ -79,8 +79,94 @@ function settings_response(array $settings): array
         'aiInsightsEnabled' => (bool) ($settings['aiInsightsEnabled'] ?? false),
         'defaultLandingPage' => (string) ($settings['defaultLandingPage'] ?? 'dashboard'),
         'lateThresholdMinutes' => (int) ($settings['lateThresholdMinutes'] ?? 15),
+        'schoolLogoPath' => isset($settings['schoolLogoPath']) && $settings['schoolLogoPath'] !== ''
+            ? (string) $settings['schoolLogoPath']
+            : null,
         'validAcademicYearStarts' => current_valid_academic_years(),
     ];
+}
+
+function school_logo_upload_directory(): string
+{
+    return dirname(__DIR__, 2) . '/uploads/logos';
+}
+
+function delete_existing_school_logo(?string $schoolLogoPath): void
+{
+    if (!$schoolLogoPath || !str_starts_with($schoolLogoPath, '/uploads/logos/')) {
+        return;
+    }
+
+    $absolutePath = dirname(__DIR__, 2) . str_replace('/', DIRECTORY_SEPARATOR, $schoolLogoPath);
+
+    if (is_file($absolutePath)) {
+        @unlink($absolutePath);
+    }
+}
+
+function handle_school_logo_upload(array $currentSettings): array
+{
+    if (!isset($_FILES['logo']) || !is_array($_FILES['logo'])) {
+        json_response(['message' => 'Logo image is required.'], 422);
+    }
+
+    $file = $_FILES['logo'];
+    $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+
+    if ($error !== UPLOAD_ERR_OK) {
+        json_response(['message' => 'The logo upload could not be processed.'], 422);
+    }
+
+    $tmpName = (string) ($file['tmp_name'] ?? '');
+    $size = (int) ($file['size'] ?? 0);
+
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        json_response(['message' => 'Invalid uploaded logo file.'], 422);
+    }
+
+    if ($size <= 0 || $size > 2 * 1024 * 1024) {
+        json_response(['message' => 'Logo image must be 2 MB or smaller.'], 422);
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = (string) $finfo->file($tmpName);
+    $allowedMimeTypes = [
+        'image/png' => 'png',
+        'image/jpeg' => 'jpg',
+        'image/webp' => 'webp',
+    ];
+
+    if (!array_key_exists($mimeType, $allowedMimeTypes)) {
+        json_response(['message' => 'Logo image must be a PNG, JPG, or WEBP file.'], 422);
+    }
+
+    $uploadDirectory = school_logo_upload_directory();
+
+    if (!is_dir($uploadDirectory) && !mkdir($uploadDirectory, 0775, true) && !is_dir($uploadDirectory)) {
+        json_response(['message' => 'Failed to prepare the logo upload directory.'], 500);
+    }
+
+    $filename = sprintf('school-logo-%s.%s', bin2hex(random_bytes(8)), $allowedMimeTypes[$mimeType]);
+    $destination = $uploadDirectory . DIRECTORY_SEPARATOR . $filename;
+
+    if (!move_uploaded_file($tmpName, $destination)) {
+        json_response(['message' => 'Failed to save the uploaded logo image.'], 500);
+    }
+
+    delete_existing_school_logo($currentSettings['schoolLogoPath'] ?? null);
+
+    $updatedSettings = array_merge($currentSettings, [
+        'schoolLogoPath' => '/uploads/logos/' . $filename,
+    ]);
+
+    try {
+        save_app_settings($updatedSettings);
+    } catch (RuntimeException $exception) {
+        @unlink($destination);
+        json_response(['message' => 'Failed to save settings.'], 500);
+    }
+
+    return $updatedSettings;
 }
 
 if ($method === 'GET') {
@@ -92,8 +178,14 @@ if ($method === 'POST') {
         json_response(['message' => 'Only admins can update settings.'], 403);
     }
 
-    $payload = json_input();
     $currentSettings = load_app_settings();
+    $contentType = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? ''));
+
+    if (str_starts_with($contentType, 'multipart/form-data')) {
+        json_response(settings_response(handle_school_logo_upload($currentSettings)));
+    }
+
+    $payload = json_input();
     $updatedSettings = array_merge($currentSettings, normalize_settings_update($payload));
 
     try {

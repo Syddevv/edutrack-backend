@@ -15,6 +15,7 @@ function default_app_settings(): array
         'aiInsightsEnabled' => false,
         'defaultLandingPage' => 'dashboard',
         'lateThresholdMinutes' => 15,
+        'schoolLogoPath' => null,
     ];
 }
 
